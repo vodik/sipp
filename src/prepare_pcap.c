@@ -16,6 +16,7 @@
  *  Author : Guillaume TEISSIER from FTR&D 02/02/2006
  */
 #include <pcap.h>
+#include <pcap/sll.h>
 #include <stdlib.h>
 #include <netinet/in.h>
 #include <netinet/udp.h>
@@ -83,6 +84,35 @@ inline u_int16_t checksum_carry(int s)
 
 char errbuf[PCAP_ERRBUF_SIZE];
 
+static size_t find_iphdr(u_char *pktdata, int datalink)
+{
+    size_t offset = 0;
+    int protocol = 0;
+
+    switch (datalink) {
+    case DLT_EN10MB:
+        offset = sizeof(ether_hdr);
+        protocol = ((ether_hdr *)pktdata)->ether_type;
+        break;
+    case DLT_LINUX_SLL:
+        offset = sizeof(struct sll_header);
+        protocol = ((struct sll_header *)pktdata)->sll_protocol;
+        break;
+    default:
+        fprintf(stderr, "Don't know how to decode packet format!\n");
+        return 0;
+    }
+
+    protocol = ntohs(protocol);
+
+    if (protocol != 0x0800 && protocol != 0x86dd) {
+        fprintf(stderr, "Ignoring non IP{4,6} packet!\n");
+        return 0;
+    }
+
+    return offset;
+}
+
 /* prepare a pcap file
  */
 int prepare_pkts(char *file, pcap_pkts *pkts)
@@ -95,16 +125,19 @@ int prepare_pkts(char *file, pcap_pkts *pkts)
     u_int16_t base = 0xffff;
     u_long pktlen;
     pcap_pkt *pkt_index;
-    ether_hdr *ethhdr;
     struct iphdr *iphdr;
     ipv6_hdr *ip6hdr;
     struct udphdr *udphdr;
+    int datalink;
+    size_t offset = 0;
 
     pkts->pkts = NULL;
 
     pcap = pcap_open_offline(file, errbuf);
     if (!pcap)
         ERROR("Can't open PCAP file '%s'", file);
+
+    datalink = pcap_datalink(pcap);
 
 #if HAVE_PCAP_NEXT_EX
     while (pcap_next_ex (pcap, &pkthdr, (const u_char **) &pktdata) == 1) {
@@ -118,16 +151,15 @@ int prepare_pkts(char *file, pcap_pkts *pkts)
         ERROR("Can't allocate memory for pcap pkthdr");
     while ((pktdata = (u_char *) pcap_next (pcap, pkthdr)) != NULL) {
 #endif
-        ethhdr = (ether_hdr *)pktdata;
-        if (ntohs(ethhdr->ether_type) != 0x0800 /* IPv4 */
-                && ntohs(ethhdr->ether_type) != 0x86dd) { /* IPv6 */
-            fprintf(stderr, "Ignoring non IP{4,6} packet!\n");
+        offset = find_iphdr(pktdata, datalink);
+        if (!offset) {
             continue;
         }
-        iphdr = (struct iphdr *)((char *)ethhdr + sizeof(*ethhdr));
+
+        iphdr = (struct iphdr *)(pktdata + offset);
         if (iphdr && iphdr->version == 6) {
             //ipv6
-            pktlen = (u_long) pkthdr->len - sizeof(*ethhdr) - sizeof(*ip6hdr);
+            pktlen = (u_long) pkthdr->len - offset - sizeof(*ip6hdr);
             ip6hdr = (ipv6_hdr *)(void *) iphdr;
             if (ip6hdr->nxt_header != IPPROTO_UDP) {
                 fprintf(stderr, "prepare_pcap.c: Ignoring non UDP packet!\n");
@@ -145,7 +177,7 @@ int prepare_pkts(char *file, pcap_pkts *pkts)
             pktlen = (u_long)(ntohs(udphdr->uh_ulen));
 #elif defined ( __HPUX)
             udphdr = (struct udphdr *)((char *)iphdr + (iphdr->ihl << 2));
-            pktlen = (u_long) pkthdr->len - sizeof(*ethhdr) - sizeof(*iphdr);
+            pktlen = (u_long) pkthdr->len - offset - sizeof(*iphdr);
 #else
             udphdr = (struct udphdr *)((char *)iphdr + (iphdr->ihl << 2));
             pktlen = (u_long)(ntohs(udphdr->len));
