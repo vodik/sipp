@@ -22,32 +22,7 @@
 #include <netinet/udp.h>
 #include <time.h>
 
-#if defined(__HPUX) || defined(__DARWIN) || defined(__CYGWIN) || defined(__FreeBSD__)
-#define u_int8_t uint8_t
-#define u_int16_t uint16_t
-#define u_int32_t uint32_t
-
-struct iphdr {
-#ifdef _HPUX_LI
-    unsigned int ihl:4;
-    unsigned int version:4;
-#else
-    unsigned int version:4;
-    unsigned int ihl:4;
-#endif
-    u_int8_t tos;
-    u_int16_t tot_len;
-    u_int16_t id;
-    u_int16_t frag_off;
-    u_int8_t ttl;
-    u_int8_t protocol;
-    u_int16_t check;
-    u_int32_t saddr;
-    u_int32_t daddr;
-    /*The options start here. */
-};
-
-#endif
+#define PCAP_MAXPACKET  1500
 
 typedef struct {
     u_char *data;
@@ -56,11 +31,10 @@ typedef struct {
     int partial_check;
 } pcap_pkt;
 
-#define PCAP_MAXPACKET	1500
 typedef struct {
-    char *file;
+    const char *file;
     u_int16_t base;
-    u_long max_length;
+    size_t max_length;
     pcap_pkt *max;
     pcap_pkt *pkts;
 } pcap_pkts;
@@ -68,9 +42,10 @@ typedef struct {
 #ifdef __cplusplus
 extern "C" {
 #endif
-    int check(u_int16_t *, int);
+    int check(const u_int16_t *, int);
     u_int16_t checksum_carry(int);
-    int prepare_pkts(char *, pcap_pkts *);
+    int prepare_pkts(const char *, pcap_pkts *pkts);
+    void free_pkts(pcap_pkts *);
 #ifdef __cplusplus
 }
 #endif
