@@ -23,14 +23,8 @@
 #include <stdlib.h>
 #include <netinet/in.h>
 #include <netinet/udp.h>
-
-#if defined(__HPUX) || defined(__CYGWIN) || defined(__FreeBSD__)
-#include <netinet/in_systm.h>
-#endif
 #include <netinet/ip.h>
-#ifndef __CYGWIN
 #include <netinet/ip6.h>
-#endif
 #include <string.h>
 
 #include "defines.h"
